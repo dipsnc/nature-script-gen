@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import "./App.css";
 
-const SCRIPTS = {
+const FALLBACK_SCRIPTS = {
   "pine-forest": [
     "Close your eyes and imagine the scent of fresh pine needles...",
     "Take a deep breath in, feeling the crisp, cool forest air fill your lungs.",
@@ -44,6 +44,7 @@ function App() {
   const [scriptIndex, setScriptIndex] = useState(0);
   const [timeLeft, setTimeLeft] = useState(60);
   const [theme, setTheme] = useState("default");
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     let timer;
@@ -51,14 +52,14 @@ function App() {
       timer = setInterval(() => {
         setTimeLeft((prev) => prev - 1);
       }, 1000);
-    } else if (timeLeft === 0) {
+    } else if (timeLeft === 0 && phase === "meditating") {
       setPhase("finished");
     }
     return () => clearInterval(timer);
   }, [phase, timeLeft]);
 
   useEffect(() => {
-    if (phase === "meditating") {
+    if (phase === "meditating" && currentScript.length > 0) {
       const interval = 60 / currentScript.length;
       const currentIndex = Math.min(
         Math.floor((60 - timeLeft) / interval),
@@ -68,24 +69,43 @@ function App() {
     }
   }, [timeLeft, phase, currentScript]);
 
-  const startMeditation = () => {
+  const startMeditation = async () => {
     if (!location.trim() && phase === "input") return;
 
     setPhase("loading");
+    setError(null);
 
-    // Determine script and theme
+    // Determine theme
     const normalizedLoc = location.toLowerCase().trim().replace(/\s+/g, "-");
-    const selectedScript = SCRIPTS[normalizedLoc] || SCRIPTS["generic"];
-    const selectedTheme = SCRIPTS[normalizedLoc] ? normalizedLoc : "default";
-
-    setCurrentScript(selectedScript);
+    const selectedTheme = FALLBACK_SCRIPTS[normalizedLoc]
+      ? normalizedLoc
+      : "default";
     setTheme(selectedTheme);
 
-    // Simulate "generation" delay for premium feel
-    setTimeout(() => {
+    try {
+      const response = await fetch("/api/generate-script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location }),
+      });
+
+      if (!response.ok) throw new Error("API failed");
+
+      const data = await response.json();
+      setCurrentScript(data.script);
       setPhase("meditating");
       setTimeLeft(60);
-    }, 2500);
+    } catch (err) {
+      console.warn("AI Generation failed, falling back to local scripts.", err);
+      const fallback =
+        FALLBACK_SCRIPTS[normalizedLoc] || FALLBACK_SCRIPTS["generic"];
+      setCurrentScript(fallback);
+      // Small delay for the loader to feel natural
+      setTimeout(() => {
+        setPhase("meditating");
+        setTimeLeft(60);
+      }, 1500);
+    }
   };
 
   const reset = () => {
@@ -93,12 +113,14 @@ function App() {
     setLocation("");
     setTheme("default");
     setScriptIndex(0);
+    setTimeLeft(60);
+    setError(null);
   };
 
   return (
     <div className={`app-container bg-${theme}`}>
       <header className="site-header">
-        <div className="brand">
+        <div className="brand" onClick={reset} style={{ cursor: "pointer" }}>
           <div className="brand-icon">✧</div>
           <span>AURA GEN</span>
         </div>
@@ -187,7 +209,7 @@ function App() {
                   />
                   <motion.div
                     className="breathing-core"
-                    animate={{ scale: [1, 1.3, 1] }}
+                    animate={{ scale: [1, 1.1, 1] }}
                     transition={{
                       duration: 8,
                       repeat: Infinity,
@@ -235,7 +257,7 @@ function App() {
       <footer className="site-footer">
         <span>© 2026 AURA GEN</span>
         <span>RELAXED • FOCUSED • PRESENT</span>
-        <span>SOUNDS ON</span>
+        <span>AI POWERED</span>
       </footer>
     </div>
   );
